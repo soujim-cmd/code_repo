@@ -5,15 +5,22 @@ Usage:
   python main.py              # Run once now
   python main.py --schedule   # Run daily at 08:00 (keeps process alive)
   python main.py --history    # Print the last 7 days of logged results
+
+Environment:
+  ANTHROPIC_API_KEY  — required for the Claude agent
+  NOTION_API_KEY     — required for writing to Notion Job Pipeline Tracker
 """
 
 import argparse
 import sys
 import time
+import os
+
 import schedule
 
 from agent import find_top_jobs
-from logger import log_jobs, print_summary, read_log
+from logger import log_jobs, log_jobs_to_notion, print_summary, read_log
+from notion_writer import create_notion_pages
 from profile import CANDIDATE_PROFILE
 
 
@@ -32,6 +39,15 @@ def run_daily_search():
     log_jobs(jobs)
     print_summary(jobs)
 
+    # Write to Notion if API key is available
+    notion_key = os.environ.get("NOTION_API_KEY")
+    if notion_key:
+        pages = log_jobs_to_notion(jobs)
+        created = create_notion_pages(pages, notion_key)
+        print(f"  → Created {len(created)} entries in Notion Job Pipeline Tracker.")
+    else:
+        print("  → NOTION_API_KEY not set; skipping Notion write.")
+
 
 def show_history():
     entries = read_log(7)
@@ -47,7 +63,7 @@ def show_history():
 
 def main():
     parser = argparse.ArgumentParser(description="LinkedIn Job Matcher Agent")
-    parser.add_argument("--schedule", action="store_true", help="Run daily at 08:00 (keeps process alive)")
+    parser.add_argument("--schedule", action="store_true", help="Run daily at 08:00")
     parser.add_argument("--history", action="store_true", help="Show last 7 days of logged matches")
     args = parser.parse_args()
 
@@ -57,7 +73,7 @@ def main():
 
     if args.schedule:
         print("Scheduler started. Will search daily at 08:00.")
-        run_daily_search()  # Run immediately on start
+        run_daily_search()
         schedule.every().day.at("08:00").do(run_daily_search)
         while True:
             schedule.run_pending()
